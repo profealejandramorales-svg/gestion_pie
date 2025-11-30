@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión PIE - Colaborativo</title>
+    
+    <!-- Dependencias React & Tailwind -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Librería de Iconos Lucide (Versión compatible) -->
+    <script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js"></script>
+
+    <!-- Estilos de Impresión -->
+    <style>
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white; -webkit-print-color-adjust: exact; }
+            .page-break { page-break-after: always; }
+        }
+        .print-only { display: none; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="bg-gray-100 text-slate-800 font-sans antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            updateDoc, 
+            deleteDoc, 
+            setDoc, // Importante para guardar configuración
+            doc, 
+            onSnapshot, 
+            query,
+            getDocs
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- CONFIGURACIÓN FIREBASE ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyAisxzJVm2OzjYEXSi4Q7HxZEUG_aarQwo",
+            authDomain: "notas-liceo-agricola-sscc.firebaseapp.com",
+            databaseURL: "https://notas-liceo-agricola-sscc-default-rtdb.firebaseio.com",
+            projectId: "notas-liceo-agricola-sscc",
+            storageBucket: "notas-liceo-agricola-sscc.firebasestorage.app",
+            messagingSenderId: "434804825732",
+            appId: "1:434804825732:web:8c9035fa88be54cd6facd1"
+        };
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'gestion-pie-default';
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // --- ICONOS ---
+        const LucideIcon = ({ name, size = 20, className = "" }) => {
+            if (!window.lucide || !window.lucide.icons) return <span className="w-4 h-4 bg-gray-200 block rounded"></span>;
+            const iconName = name.charAt(0).toUpperCase() + name.slice(1);
+            const iconDef = window.lucide.icons[iconName] || window.lucide.icons[name];
+            if (!iconDef) return <span className="text-xs text-red-500 font-bold">?</span>;
+            
+            const [tag, attrs, children] = iconDef;
+            return (
+                <svg {...attrs} width={size} height={size} className={`lucide lucide-${name.toLowerCase()} ${className}`} stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    {children && children.map((child, index) => {
+                        const [childTag, childAttrs] = child;
+                        return React.createElement(childTag, { ...childAttrs, key: index });
+                    })}
+                </svg>
+            );
+        };
+
+        // --- COMPONENTES UI ---
+        const SidebarItem = ({ icon, label, active, onClick }) => (
+            <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-all mb-1 ${active ? 'bg-emerald-600 text-white shadow-md' : 'hover:bg-slate-800 text-slate-300 hover:text-white'}`}>
+                <LucideIcon name={icon} size={20} />
+                <span className="font-medium text-sm">{label}</span>
+            </button>
+        );
+
+        const StatCard = ({ title, value, color, icon, iconColor, onClick, isActive }) => (
+            <div 
+                onClick={onClick}
+                className={`bg-white p-5 rounded-xl shadow-sm border-l-4 ${color} transition-all hover:shadow-md cursor-pointer relative overflow-hidden group ${isActive ? 'ring-2 ring-offset-2 ring-emerald-500' : ''}`}
+            >
+                <div className="flex justify-between items-start relative z-10">
+                    <div>
+                        <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">{title}</p>
+                        <h3 className="text-2xl font-bold text-slate-800 mt-1">{value}</h3>
+                    </div>
+                    <div className={`${iconColor} bg-slate-50 p-2 rounded-lg group-hover:scale-110 transition-transform`}><LucideIcon name={icon} size={24} /></div>
+                </div>
+                <div className="absolute right-0 bottom-0 opacity-0 group-hover:opacity-10 transition-opacity">
+                    <LucideIcon name={icon} size={80} />
+                </div>
+            </div>
+        );
+
+        // --- DATOS INICIALES ---
+        const INITIAL_STUDENTS = [
+            { id: 1, name: "Fernanda Florencia Quinteros Vergara", rut: "Por Actualizar", course: "1° Medio A", diagnosis: "TEA", type: "Permanente" },
+            { id: 2, name: "Luis Gabriel Muñoz Contreras", rut: "23.366.642-4", course: "1° Medio A", diagnosis: "DIL", type: "Permanente" },
+            // ... Resto de datos omitidos por brevedad, se cargan si BD vacía
+        ];
+
+        const COURSES_OPTIONS = ["1° Medio A", "1° Medio B", "2° Medio A", "2° Medio B", "3° Medio A", "3° Medio C", "4° Medio A", "4° Medio C"];
+        const DIAGNOSES_OPTIONS = [
+            { value: "TDAH", label: "TDAH (Transitorio)", type: "Transitoria" },
+            { value: "DEA", label: "DEA (Transitorio)", type: "Transitoria" },
+            { value: "TEL", label: "TEL (Transitorio)", type: "Transitoria" },
+            { value: "FIL", label: "FIL (Transitorio)", type: "Transitoria" },
+            { value: "TEA", label: "TEA (Permanente)", type: "Permanente" },
+            { value: "DIL", label: "DIL (Permanente)", type: "Permanente" },
+            { value: "DIM", label: "DIM (Permanente)", type: "Permanente" },
+            { value: "Visual", label: "Visual (Permanente)", type: "Permanente" },
+            { value: "Auditiva", label: "Auditiva (Permanente)", type: "Permanente" },
+            { value: "Sin Diagnóstico", label: "Sin Diagnóstico", type: "N/A" }
+        ];
+
+        // --- VISTAS ---
+
+        const DashboardView = ({ students, progress, isConnected, authError }) => {
+            const [detailView, setDetailView] = useState(null);
+
+            const transitorios = useMemo(() => students.filter(s => s.type === 'Transitoria'), [students]);
+            const permanentes = useMemo(() => students.filter(s => s.type === 'Permanente'), [students]);
+            const conInformes = useMemo(() => {
+                const idsConInforme = new Set(progress.map(p => String(p.studentId))); 
+                return students.filter(s => idsConInforme.has(String(s.id)));
+            }, [students, progress]);
+
+            const renderDetailTable = () => {
+                let data = [];
+                let title = "";
+                let color = "";
+
+                if (detailView === 'transitorios') {
+                    data = transitorios;
+                    title = "Nómina Alumnos NEE Transitorias";
+                    color = "text-amber-600";
+                } else if (detailView === 'permanentes') {
+                    data = permanentes;
+                    title = "Nómina Alumnos NEE Permanentes";
+                    color = "text-purple-600";
+                } else if (detailView === 'informes') {
+                    data = conInformes;
+                    title = "Alumnos con Informe Generado";
+                    color = "text-emerald-600";
+                } else {
+                    return null;
+                }
+
+                return (
+                    <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden animate-fade-in mt-6">
+                        <div className="p-4 border-b bg-slate-50 flex justify-between items-center">
+                            <h3 className={`font-bold text-lg ${color} flex items-center gap-2`}>
+                                <LucideIcon name="List" size={20}/> {title}
+                            </h3>
+                            <button onClick={() => setDetailView(null)} className="text-slate-400 hover:text-slate-600">
+                                <LucideIcon name="X" size={24}/>
+                            </button>
+                        </div>
+                        <div className="max-h-96 overflow-y-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-100 text-slate-500 font-bold uppercase text-xs sticky top-0">
+                                    <tr>
+                                        <th className="p-3">Estudiante</th>
+                                        <th className="p-3">Curso</th>
+                                        <th className="p-3">Diagnóstico</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {data.length === 0 ? (
+                                        <tr><td colSpan="3" className="p-6 text-center text-slate-400 italic">No hay estudiantes en esta categoría.</td></tr>
+                                    ) : data.map(s => (
+                                        <tr key={s.id} className="hover:bg-slate-50">
+                                            <td className="p-3 font-medium text-slate-700">{s.name}</td>
+                                            <td className="p-3 text-slate-500">{s.course}</td>
+                                            <td className="p-3">
+                                                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${s.type === 'Permanente' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-amber-50 text-amber-700 border-amber-100'}`}>
+                                                    {s.diagnosis}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="p-3 bg-slate-50 text-right text-xs text-slate-500 border-t">
+                            Total: <strong>{data.length}</strong> estudiantes
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="space-y-6">
+                    {authError && <div className="bg-red-50 text-red-700 p-4 rounded border-l-4 border-red-500">{authError}</div>}
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <StatCard title="Total Alumnos" value={students.length} color="border-blue-500" icon="Users" iconColor="text-blue-600" onClick={() => {}} />
+                        <StatCard title="Transitorios" value={transitorios.length} color="border-amber-500" icon="Activity" iconColor="text-amber-600" onClick={() => setDetailView(detailView === 'transitorios' ? null : 'transitorios')} isActive={detailView === 'transitorios'} />
+                        <StatCard title="Permanentes" value={permanentes.length} color="border-purple-500" icon="Brain" iconColor="text-purple-600" onClick={() => setDetailView(detailView === 'permanentes' ? null : 'permanentes')} isActive={detailView === 'permanentes'} />
+                        <StatCard title="Informes Generados" value={conInformes.length} color="border-emerald-500" icon="FileText" iconColor="text-emerald-600" onClick={() => setDetailView(detailView === 'informes' ? null : 'informes')} isActive={detailView === 'informes'} />
+                    </div>
+
+                    {detailView && renderDetailTable()}
+                    
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                        <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2"><LucideIcon name="Globe" className="text-blue-600"/> Modo Colaborativo</h3>
+                        <div className="text-sm text-slate-600">
+                            {isConnected ? 
+                                <span className="text-emerald-600 font-bold flex items-center gap-2"><span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span> Conectado</span> : 
+                                <span className="text-yellow-600 font-bold flex items-center gap-2"><span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span> Conectando...</span>
+                            }
+                            <p className="mt-2 text-xs">Datos compartidos con Coordinación y Administración.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const StudentsView = ({ students, onAdd, onEdit, onDelete, onUpdateWithCSV }) => {
+            const [searchTerm, setSearchTerm] = useState("");
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isEditMode, setIsEditMode] = useState(false);
+            const [form, setForm] = useState({ id: null, name: "", rut: "", course: "1° Medio A", diagnosis: "TEA", type: "Permanente" });
+            const fileInputRef = useRef(null);
+
+            const filtered = students.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            const handleAddNew = () => {
+                setForm({ id: null, name: "", rut: "", course: "1° Medio A", diagnosis: "TEA", type: "Permanente" });
+                setIsEditMode(false);
+                setIsModalOpen(true);
+            };
+
+            const handleEdit = (student) => {
+                setForm({ ...student });
+                setIsEditMode(true);
+                setIsModalOpen(true);
+            };
+
+            const handleSave = () => {
+                isEditMode ? onEdit(form) : onAdd(form);
+                setIsModalOpen(false);
+            };
+
+            const handleDeleteFromModal = () => {
+                if(form.id) {
+                    onDelete(form.id);
+                    setIsModalOpen(false);
+                }
+            };
+
+            const handleCSV = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const lines = evt.target.result.split('\n');
+                    const updates = [];
+                    lines.forEach(line => {
+                        const cols = line.split(';');
+                        if(cols.length >= 3) {
+                            const csvRut = cols[1].trim();
+                            const csvName = cols.slice(2).join(' ').replace(/\s+/g, ' ').toUpperCase();
+                            students.forEach(st => {
+                                if(st.name.toUpperCase().includes(csvName) || csvName.includes(st.name.toUpperCase().split(' ')[0])) {
+                                    if(st.rut === "Por Actualizar") updates.push({...st, rut: csvRut});
+                                }
+                            });
+                        }
+                    });
+                    if(updates.length > 0) { onUpdateWithCSV(updates); alert(`Actualizados ${updates.length} estudiantes.`); }
+                    else alert("No se encontraron coincidencias.");
+                };
+                reader.readAsText(file);
+                e.target.value = null;
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-xl shadow-sm items-center">
+                        <div className="relative flex-1 w-full">
+                            <LucideIcon name="Search" className="absolute left-3 top-3 text-slate-400" size={18}/>
+                            <input className="w-full pl-10 p-2.5 border rounded-lg outline-none" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                        </div>
+                        <div className="flex gap-2">
+                            <input type="file" ref={fileInputRef} onChange={handleCSV} accept=".csv" className="hidden"/>
+                            <button onClick={() => fileInputRef.current.click()} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex gap-2 hover:bg-blue-700 text-sm font-medium items-center"><LucideIcon name="Upload" size={18}/> CSV</button>
+                            <button onClick={handleAddNew} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex gap-2 hover:bg-emerald-700 font-medium items-center"><LucideIcon name="Plus" size={18}/> Nuevo</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold"><tr><th className="p-4">Estudiante</th><th className="p-4">Diagnóstico</th><th className="p-4 text-right">Acciones</th></tr></thead>
+                            <tbody className="divide-y divide-slate-100 text-sm">
+                                {filtered.map(s => (
+                                    <tr key={s.id} className="hover:bg-slate-50">
+                                        <td className="p-4"><div className="font-bold text-slate-700">{s.name}</div><div className="text-xs text-slate-400 font-mono">{s.rut} • {s.course}</div></td>
+                                        <td className="p-4"><span className="px-2 py-1 bg-slate-100 rounded text-xs font-semibold">{s.diagnosis}</span></td>
+                                        <td className="p-4 text-right">
+                                            <div className="flex justify-end gap-2">
+                                                <button onClick={() => handleEdit(s)} className="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Editar"><LucideIcon name="Edit" size={18}/></button>
+                                                <button onClick={() => onDelete(s.id)} className="bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded flex items-center gap-1 text-xs font-bold border border-red-200 transition-colors" title="Dar de Baja">
+                                                    <LucideIcon name="Trash2" size={14}/> Eliminar
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl space-y-4">
+                                <h3 className="font-bold text-lg border-b pb-2">{isEditMode ? 'Editar' : 'Nuevo'} Estudiante</h3>
+                                <input className="w-full p-2 border rounded" placeholder="Nombre" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+                                <input className="w-full p-2 border rounded" placeholder="RUT" value={form.rut} onChange={e => setForm({...form, rut: e.target.value})} />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <select className="w-full p-2 border rounded" value={form.course} onChange={e => setForm({...form, course: e.target.value})}>{COURSES_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                                    <select className="w-full p-2 border rounded text-sm" value={form.diagnosis} onChange={e => { const d = DIAGNOSES_OPTIONS.find(o => o.value === e.target.value); setForm({...form, diagnosis: e.target.value, type: d?.type || "Permanente"}); }}>{DIAGNOSES_OPTIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}</select>
+                                </div>
+                                <div className="flex justify-between pt-2 border-t mt-2">
+                                    {isEditMode ? (
+                                        <button onClick={handleDeleteFromModal} className="text-red-500 text-sm hover:underline flex items-center gap-1"><LucideIcon name="UserX" size={14}/> Dar de Baja</button>
+                                    ) : <div></div>}
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded">Cancelar</button>
+                                        <button onClick={handleSave} className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700">Guardar</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const ProgressView = ({ students, onAdd }) => {
+            const [form, setForm] = useState({ studentId: "", date: new Date().toISOString().split('T')[0], achievements: "", barriers: "", strategies: "", familySupport: "", social: "Adecuada", health: "Sin observaciones", alertDecree67: false });
+            const [status, setStatus] = useState("");
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!form.studentId) return;
+                const student = students.find(s => s.id == form.studentId);
+                await onAdd({ ...form, studentId: student ? student.id : form.studentId });
+                setForm({...form, achievements: "", barriers: "", strategies: "", familySupport: "", alertDecree67: false});
+                setStatus("Guardado!"); setTimeout(() => setStatus(""), 3000);
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 max-w-4xl mx-auto">
+                    <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-slate-700 pb-4 border-b"><LucideIcon name="PenTool" className="text-emerald-500"/> Nueva Bitácora</h3>
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                        <select className="w-full p-3 border rounded-lg bg-slate-50" value={form.studentId} onChange={e => setForm({...form, studentId: e.target.value})} required>
+                            <option value="">Seleccionar Estudiante...</option>
+                            {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <textarea className="p-3 border rounded h-24" placeholder="Logros y Fortalezas" value={form.achievements} onChange={e => setForm({...form, achievements: e.target.value})} required></textarea>
+                            <textarea className="p-3 border rounded h-24" placeholder="Barreras y Dificultades" value={form.barriers} onChange={e => setForm({...form, barriers: e.target.value})} required></textarea>
+                            <textarea className="p-3 border rounded h-24" placeholder="Estrategias Escuela" value={form.strategies} onChange={e => setForm({...form, strategies: e.target.value})}></textarea>
+                            <textarea className="p-3 border rounded h-24" placeholder="Sugerencias Familia" value={form.familySupport} onChange={e => setForm({...form, familySupport: e.target.value})}></textarea>
+                        </div>
+                        <div className="bg-slate-50 p-4 rounded grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <select className="p-2 border rounded" value={form.social} onChange={e => setForm({...form, social: e.target.value})}><option>Adecuada</option><option>Requiere Observación</option><option>Dificultades</option></select>
+                            <select className="p-2 border rounded" value={form.health} onChange={e => setForm({...form, health: e.target.value})}><option>Sin observaciones</option><option>En tratamiento</option><option>Alerta</option></select>
+                            <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.alertDecree67} onChange={e => setForm({...form, alertDecree67: e.target.checked})}/><span className="text-xs font-bold text-red-600">Alerta Decreto 67</span></label>
+                        </div>
+                        <button className="w-full bg-slate-800 text-white py-3 rounded hover:bg-slate-700 flex justify-center gap-2 font-bold"><LucideIcon name="Save"/> Guardar Informe</button>
+                        {status && <div className="text-center text-emerald-600 font-bold mt-2">{status}</div>}
+                    </form>
+                </div>
+            );
+        };
+
+        const ReportsView = ({ students, progress, globalLogo, onUpdateLogo }) => {
+            const [fCourse, setFCourse] = useState("all");
+            const [fStudent, setFStudent] = useState("all");
+            const [selectedLogs, setSelectedLogs] = useState(new Set());
+            const [studentLogs, setStudentLogs] = useState([]); // Logs del estudiante seleccionado
+
+            const filtered = students.filter(s => (fCourse === "all" || s.course === fCourse) && (fStudent === "all" || s.id == fStudent));
+
+            // Efecto para actualizar los logs disponibles y la selección por defecto
+            useEffect(() => {
+                if (fStudent !== "all") {
+                    const logs = progress.filter(p => p.studentId == fStudent).sort((a,b) => new Date(b.date) - new Date(a.date));
+                    setStudentLogs(logs);
+                    setSelectedLogs(new Set(logs.map(l => l.id))); // Seleccionar todos por defecto
+                } else {
+                    setStudentLogs([]);
+                    setSelectedLogs(new Set());
+                }
+            }, [fStudent, progress]);
+
+            const handleLogoUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        const base64 = evt.target.result;
+                        onUpdateLogo(base64);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const toggleLog = (id) => {
+                const newSet = new Set(selectedLogs);
+                if (newSet.has(id)) newSet.delete(id);
+                else newSet.add(id);
+                setSelectedLogs(newSet);
+            };
+
+            const toggleAll = () => {
+                if (selectedLogs.size === studentLogs.length) setSelectedLogs(new Set());
+                else setSelectedLogs(new Set(studentLogs.map(l => l.id)));
+            };
+
+            return (
+                <div className="bg-white p-8 min-h-screen">
+                    <div className="no-print mb-8 bg-slate-50 p-6 rounded-xl border flex flex-col gap-4">
+                        <div className="flex gap-4 w-full items-end">
+                            <div className="flex-1"><label className="block text-xs font-bold mb-1">Curso</label><select className="w-full p-2 border rounded" onChange={e => {setFCourse(e.target.value); setFStudent("all");}}><option value="all">Todos</option>{COURSES_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                            <div className="flex-1"><label className="block text-xs font-bold mb-1">Estudiante</label><select className="w-full p-2 border rounded" value={fStudent} onChange={e => setFStudent(e.target.value)}><option value="all">Todos</option>{students.filter(s => fCourse === "all" || s.course === fCourse).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+                            <div className="flex-1"><label className="block text-xs font-bold mb-1">Logo Institucional</label><label className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-300 rounded cursor-pointer hover:bg-slate-50"><LucideIcon name="Image" size={16} className="text-slate-500"/><span className="text-xs text-slate-600 truncate">{globalLogo ? "Logo Guardado" : "Subir Logo (Definitivo)"}</span><input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" /></label></div>
+                        </div>
+
+                        {/* SELECTOR DE INFORMES (Solo visible si hay un alumno seleccionado) */}
+                        {fStudent !== "all" && studentLogs.length > 0 && (
+                            <div className="w-full mt-4 bg-white p-4 rounded border border-blue-200">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h4 className="font-bold text-sm text-slate-700 flex items-center gap-2"><LucideIcon name="CheckSquare" size={16}/> Seleccionar Informes a Imprimir</h4>
+                                    <button onClick={toggleAll} className="text-xs text-blue-600 hover:underline">{selectedLogs.size === studentLogs.length ? "Deseleccionar Todos" : "Seleccionar Todos"}</button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                                    {studentLogs.map(log => (
+                                        <label key={log.id} className={`flex items-center gap-2 p-2 border rounded cursor-pointer text-xs ${selectedLogs.has(log.id) ? 'bg-blue-50 border-blue-300' : 'hover:bg-gray-50'}`}>
+                                            <input type="checkbox" checked={selectedLogs.has(log.id)} onChange={() => toggleLog(log.id)} className="rounded text-blue-600"/>
+                                            <span className="truncate"><strong>{log.date}</strong> - {log.achievements.substring(0, 20)}...</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex justify-end w-full">
+                            <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded flex gap-2 font-bold"><LucideIcon name="Printer"/> Imprimir</button>
+                        </div>
+                    </div>
+
+                    {filtered.map(s => {
+                        // Filtramos los logs: Si hay alumno seleccionado, usamos la selección manual. Si es "Todos", imprimimos todo.
+                        let logs = progress.filter(p => p.studentId == s.id).sort((a,b) => new Date(a.date) - new Date(b.date));
+                        
+                        if (fStudent !== "all") {
+                            logs = logs.filter(l => selectedLogs.has(l.id));
+                        }
+
+                        // Si no hay logs seleccionados para mostrar, saltamos (salvo que sea modo "Todos" y no tenga logs, ahí mostramos "sin registros")
+                        if (fStudent !== "all" && logs.length === 0) return (
+                            <div className="no-print p-4 text-center text-slate-400 border border-dashed rounded bg-slate-50 mb-4">
+                                No hay informes seleccionados para imprimir de {s.name}.
+                            </div>
+                        );
+
+                        return (
+                            <div key={s.id} className="page-break mb-12 relative">
+                                <div className="border-b-2 border-slate-800 pb-4 mb-6 text-center">
+                                    {globalLogo && (
+                                        <div className="flex justify-center mb-6">
+                                            <img src={globalLogo} alt="Logo Escuela" className="h-24 object-contain block mx-auto" />
+                                        </div>
+                                    )}
+                                    <div>
+                                        <h2 className="font-bold text-2xl uppercase text-slate-900 tracking-wide">INFORME DE PROCESO EDUCATIVO</h2>
+                                        <p className="text-sm font-medium text-slate-600 mt-1">Programa de Integración Escolar 2025</p>
+                                    </div>
+                                </div>
+                                <div className="bg-slate-50 p-4 border mb-6 grid grid-cols-2 gap-4 text-sm"><div><strong>Estudiante:</strong> {s.name}</div><div><strong>RUT:</strong> {s.rut}</div><div><strong>Curso:</strong> {s.course}</div><div><strong>Diagnóstico:</strong> {s.diagnosis}</div></div>
+                                <div className="space-y-6">
+                                    {logs.length === 0 ? <div className="text-center italic text-slate-400 py-4">Sin registros.</div> : logs.map((l, i) => (
+                                        <div key={l.id} className="border rounded overflow-hidden break-inside-avoid">
+                                            <div className="bg-slate-100 p-2 flex justify-between font-bold text-sm"><span>Registro #{i+1}</span><span>{l.date}</span></div>
+                                            <div className="p-4 grid grid-cols-2 gap-6 text-sm">
+                                                <div className="space-y-2"><div><strong className="text-emerald-700 block text-xs">Fortalezas</strong><p>{l.achievements}</p></div><div><strong className="text-amber-700 block text-xs">Barreras</strong><p>{l.barriers}</p></div></div>
+                                                <div className="space-y-2"><div><strong className="text-blue-700 block text-xs">Estrategias</strong><p>{l.strategies}</p></div><div><strong className="text-purple-700 block text-xs">Familia</strong><p>{l.familySupport}</p></div></div>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 text-xs flex gap-4"><span>Conv: {l.social}</span><span>Salud: {l.health}</span>{l.alertDecree67 && <span className="text-red-600 font-bold">ALERTA D.67</span>}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="mt-20 pt-4 border-t flex justify-around text-center text-xs break-inside-avoid"><div className="w-40 pt-4 border-t border-black">Profesor Jefe</div><div className="w-40 pt-4 border-t border-black"><strong>Alejandra Morales G.</strong><br/>UTP</div><div className="w-40 pt-4 border-t border-black">Coordinación PIE</div></div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
+        function App() {
+            const [students, setStudents] = useState([]);
+            const [progress, setProgress] = useState([]);
+            const [logo, setLogo] = useState(null); // Estado global para el logo
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [user, setUser] = useState(null);
+            const [authError, setAuthError] = useState(null);
+
+            useEffect(() => {
+                const initAuth = async () => { try { if(typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token); else await signInAnonymously(auth); } catch(e) { setAuthError(e.message); } };
+                initAuth();
+                onAuthStateChanged(auth, setUser);
+            }, []);
+
+            useEffect(() => {
+                if(!user) return;
+                // Carga inicial de datos
+                const seedData = async () => {
+                    const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'students'));
+                    if(snap.empty) {
+                        for(const s of INITIAL_STUDENTS) await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), s);
+                    }
+                };
+                seedData();
+
+                // Listeners
+                const unsubS = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'students')), s => setStudents(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>a.name.localeCompare(b.name))));
+                const unsubP = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'progress')), s => setProgress(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>new Date(b.date)-new Date(a.date))));
+                
+                // Listener para CONFIGURACIÓN (LOGO)
+                const unsubC = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings'), (doc) => {
+                    if (doc.exists() && doc.data().logo) {
+                        setLogo(doc.data().logo);
+                    }
+                });
+
+                return () => { unsubS(); unsubP(); unsubC(); };
+            }, [user]);
+
+            const addS = async (d) => { if(user) await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), d); };
+            const editS = async (d) => { if(user && d.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', d.id), d); };
+            const delS = async (id) => { if(user && confirm('¿Dar de baja a este estudiante?')) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', id)); };
+            const updateWithCSV = async (updates) => { if(user) for(const u of updates) if(u.id) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', u.id), u); };
+            const addP = async (d) => { if(user) await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'progress'), d); };
+            
+            // Función para actualizar el logo en BD
+            const updateLogo = async (base64) => {
+                if(user) {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings'), { logo: base64 }, { merge: true });
+                }
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden bg-gray-100">
+                    <aside className="w-64 bg-slate-900 text-slate-300 flex-col hidden md:flex no-print shadow-xl z-20">
+                        <div className="p-6 border-b border-slate-800"><h1 className="font-bold text-lg text-emerald-400 flex items-center gap-2"><LucideIcon name="School"/> Gestor PIE</h1></div>
+                        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+                            <SidebarItem icon="LayoutDashboard" label="Panel General" active={activeTab==='dashboard'} onClick={() => setActiveTab('dashboard')}/>
+                            <SidebarItem icon="Users" label="Nómina Alumnos" active={activeTab==='students'} onClick={() => setActiveTab('students')}/>
+                            <SidebarItem icon="BookOpen" label="Bitácora Avance" active={activeTab==='progress'} onClick={() => setActiveTab('progress')}/>
+                            <SidebarItem icon="FileText" label="Reportes Familia" active={activeTab==='reports'} onClick={() => setActiveTab('reports')}/>
+                        </nav>
+                        <div className="p-4 border-t border-slate-800 text-xs text-slate-500"><p className="font-bold text-slate-400">Escuela Agrícola SC</p><p>Desarrollado por ProfeAle</p></div>
+                    </aside>
+                    <main className="flex-1 overflow-auto bg-gray-100 w-full relative">
+                        <div className="p-6 max-w-7xl mx-auto">
+                            {activeTab === 'dashboard' && <DashboardView students={students} progress={progress} isConnected={!!user} authError={authError} />}
+                            {activeTab === 'students' && <StudentsView students={students} onAdd={addS} onEdit={editS} onDelete={delS} onUpdateWithCSV={updateWithCSV} />}
+                            {activeTab === 'progress' && <ProgressView students={students} onAdd={addP} />}
+                            {activeTab === 'reports' && <ReportsView students={students} progress={progress} globalLogo={logo} onUpdateLogo={updateLogo} />}
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
