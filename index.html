@@ -14,19 +14,125 @@
     <!-- Librería de Iconos Lucide (Versión compatible) -->
     <script src="https://unpkg.com/lucide@0.263.1/dist/umd/lucide.min.js"></script>
 
-    <!-- Estilos de Impresión -->
+    <!-- Estilos de Impresión DEFINITIVOS Y DESBLOQUEADOS -->
     <style>
         @media print {
-            .no-print { display: none !important; }
-            .print-only { display: block !important; }
-            body { background: white; -webkit-print-color-adjust: exact; }
-            .page-break { page-break-after: always; }
+            @page { 
+                margin: 1.5cm; 
+                size: letter;
+            }
+            
+            /* 1. DESBLOQUEO TOTAL DEL FLUJO */
+            html, body {
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                color: black !important;
+                font-size: 11pt;
+            }
+
+            /* IMPORTANTE: Permitir Grid y Flex al imprimir */
+            #root, .app-container, main {
+                display: block !important;
+                position: static !important;
+                overflow: visible !important;
+                height: auto !important;
+                width: 100% !important;
+            }
+
+            /* Ocultar toda la interfaz de usuario */
+            .no-print, aside, nav, button, .sidebar, .header-ui, .suggestion-modal { 
+                display: none !important; 
+            }
+
+            /* 2. CONTROL DE PAGINACIÓN */
+            .print-container {
+                page-break-after: always;
+                display: block;
+                width: 100%;
+                margin-bottom: 0;
+                padding-bottom: 0;
+            }
+
+            /* Salto de página manual */
+            .force-page-break {
+                page-break-before: always !important;
+                break-before: page !important;
+                display: block;
+                height: 0; 
+                margin: 0;
+                border: none;
+            }
+
+            /* Evitar que cajas de texto se partan */
+            .section-box { 
+                page-break-inside: avoid; 
+                break-inside: avoid;
+                margin-bottom: 20px;
+                display: block;
+            }
+
+            p, span, textarea { 
+                overflow: visible !important; 
+                white-space: pre-wrap !important;
+            }
+
+            /* 3. ARREGLO DE FIRMAS (GRID FORZADO) */
+            /* Esta clase asegura que la grilla funcione en papel */
+            .signature-grid {
+                display: grid !important;
+                grid-template-columns: 1fr 1fr !important; /* Dos columnas forzadas */
+                column-gap: 2rem !important;
+                row-gap: 4rem !important; /* Espacio vertical entre filas */
+                width: 100% !important;
+                page-break-inside: avoid !important;
+                margin-top: 40px !important;
+            }
+            
+            .signature-box {
+                text-align: center !important;
+                page-break-inside: avoid !important;
+            }
+
+            /* Línea de firma */
+            .sig-line {
+                border-top: 1px solid #000 !important;
+                width: 80% !important; /* Ancho de la línea */
+                margin: 0 auto 5px auto !important; /* Centrado */
+                display: block !important;
+            }
+
+            /* Pie de página automático */
+            .print-footer {
+                position: fixed;
+                bottom: 0;
+                right: 0;
+                width: 100%;
+                text-align: right;
+                font-size: 9pt;
+                color: #888;
+                padding-top: 5px;
+                border-top: 1px solid #eee;
+                background: white;
+                z-index: 1000;
+            }
+            body { counter-reset: page; }
+            .print-footer::after {
+                counter-increment: page;
+                content: "Página " counter(page);
+            }
         }
+        
         .print-only { display: none; }
+        @media print { .print-only { display: block; } }
+
+        /* Scrollbars para la vista en pantalla */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body class="bg-gray-100 text-slate-800 font-sans antialiased">
@@ -57,44 +163,12 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // --- BANCO DE SUGERENCIAS (Extraído del documento) ---
+        // --- BANCO DE SUGERENCIAS ---
         const SUGGESTION_BANK = {
-            achievements: [
-                "Progresos en habilidades básicas dentro de cada asignatura (comprensión de ideas principales, resolución de ejercicios guiados).",
-                "Cumplimiento de tareas cuando se entregan con instrucciones claras, segmentadas y acompañadas.",
-                "Mejoras en la capacidad de organizar información (uso de cuadros, resúmenes guiados, mapas conceptuales).",
-                "Uso adecuado de apoyos visuales o tecnológicos (videos, plantillas, calculadora, apuntes estructurados).",
-                "Atención sostenida en actividades cortas, especialmente si están estructuradas.",
-                "Memoria funcional activa cuando se utilizan apoyos como pasos visibles o recordatorios.",
-                "Buena disposición para trabajar en equipo, especialmente con acompañamiento.",
-                "Relaciones positivas con pares y adultos cuando la convivencia es estructurada.",
-                "Esfuerzo sostenido, incluso ante tareas exigentes.",
-                "Buena capacidad para recibir retroalimentación inmediata."
-            ],
-            barriers: [
-                "Dificultad para mantener la atención en tareas extensas sin supervisión directa.",
-                "Requiere apoyo constante para iniciar o finalizar actividades complejas.",
-                "Presenta desafíos en la organización autónoma de materiales y tiempos.",
-                "Fluctuación en la motivación frente a actividades de alta demanda cognitiva.",
-                "Dificultad para generalizar aprendizajes a contextos nuevos sin mediación.",
-                "Necesidad de mayor tiempo para procesar instrucciones verbales complejas."
-            ],
-            strategies: [
-                "Uso de organizadores gráficos y ejemplos guiados para lectura, escritura y matemática.",
-                "Proporcionar retroalimentación inmediata centrada en procesos y estrategias.",
-                "Implementar estrategias de regulación emocional (pausas breves, anticipación).",
-                "Planificar evaluaciones diferenciadas con tiempo extendido y formatos flexibles.",
-                "Coordinar criterios comunes de intervención entre asignaturas y PIE.",
-                "Fomentar el uso de listas de pasos, agendas visuales y recordatorios.",
-                "Incentivar la autoverificación del trabajo antes de entregarlo."
-            ],
-            familySupport: [
-                "Favorecer rutinas estables de estudio en casa, con espacios ordenados y tiempos definidos.",
-                "Reforzar la organización del material escolar y el cumplimiento de plazos con apoyo supervisado.",
-                "Acompañar la lectura diaria, priorizando fluidez y comprensión mediante prácticas breves.",
-                "Mantener comunicación periódica con el equipo PIE y profesores.",
-                "Promover hábitos que favorezcan la regulación emocional (horarios de sueño, descanso adecuado)."
-            ]
+            achievements: ["Progresos en habilidades básicas.", "Cumplimiento de tareas.", "Mejoras en organización.", "Uso de apoyos visuales.", "Atención sostenida.", "Trabajo en equipo.", "Esfuerzo sostenido."],
+            barriers: ["Dificultad en atención sostenida.", "Requiere apoyo constante.", "Desafíos en organización.", "Fluctuación motivacional.", "Procesamiento lento."],
+            strategies: ["Organizadores gráficos.", "Retroalimentación inmediata.", "Estrategias de regulación emocional.", "Evaluaciones diferenciadas.", "Listas de pasos."],
+            familySupport: ["Favorecer rutinas estables.", "Organización de material.", "Lectura diaria.", "Comunicación con PIE.", "Hábitos de sueño."]
         };
 
         // --- ICONOS ---
@@ -125,24 +199,21 @@
             </div>
         );
 
-        const SuggestionModal = ({ isOpen, onClose, title, suggestions, onSelect }) => {
+        const SuggestionModal = ({ isOpen, onClose, title, suggestions, onSelect, colorClass }) => {
             if (!isOpen) return null;
             return (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in no-print">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-                        <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
-                            <h3 className="font-bold text-slate-700 flex items-center gap-2"><LucideIcon name="Lightbulb" className="text-amber-500"/> Banco de Sugerencias: {title}</h3>
-                            <button onClick={onClose}><LucideIcon name="X" className="text-slate-400 hover:text-slate-600"/></button>
+                        <div className={`p-4 border-b flex justify-between items-center rounded-t-xl ${colorClass.bg} ${colorClass.text}`}>
+                            <h3 className="font-bold flex items-center gap-2"><LucideIcon name="Lightbulb" size={20}/> Banco: {title}</h3>
+                            <button onClick={onClose} className="hover:opacity-70"><LucideIcon name="X" size={20}/></button>
                         </div>
                         <div className="p-4 overflow-y-auto space-y-2">
                             {suggestions.map((s, i) => (
-                                <button key={i} onClick={() => onSelect(s)} className="w-full text-left p-3 text-sm text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-transparent hover:border-emerald-200 rounded-lg transition-all">
+                                <button key={i} onClick={() => onSelect(s)} className="w-full text-left p-3 text-sm text-slate-600 hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-lg transition-all">
                                     • {s}
                                 </button>
                             ))}
-                        </div>
-                        <div className="p-3 bg-slate-50 text-xs text-center text-slate-400 border-t rounded-b-xl">
-                            Haz clic para insertar. Puedes editar el texto después.
                         </div>
                     </div>
                 </div>
@@ -152,7 +223,7 @@
         // --- DATOS ESTÁTICOS ---
         const INITIAL_STUDENTS = [
             { id: 1, name: "Fernanda Florencia Quinteros Vergara", rut: "Por Actualizar", course: "1° Medio A", diagnosis: "TEA", type: "Permanente" },
-            // ... (Resto de datos se mantienen)
+            // ... resto de datos
         ];
 
         const COURSES_OPTIONS = ["1° Medio A", "1° Medio B", "2° Medio A", "2° Medio B", "3° Medio A", "3° Medio C", "4° Medio A", "4° Medio C"];
@@ -182,9 +253,9 @@
 
             const renderDetailTable = () => {
                 let data = [], title = "", color = "";
-                if (detailView === 'transitorios') { data = transitorios; title = "Alumnos Transitorios"; color = "text-amber-600"; }
-                else if (detailView === 'permanentes') { data = permanentes; title = "Alumnos Permanentes"; color = "text-purple-600"; }
-                else if (detailView === 'informes') { data = conInformes; title = "Con Informes"; color = "text-emerald-600"; }
+                if (detailView === 'transitorios') { data = transitorios; title = "Nómina Alumnos NEE Transitorias"; color = "text-amber-600"; }
+                else if (detailView === 'permanentes') { data = permanentes; title = "Nómina Alumnos NEE Permanentes"; color = "text-purple-600"; }
+                else if (detailView === 'informes') { data = conInformes; title = "Alumnos con Informe Generado"; color = "text-emerald-600"; }
                 else return null;
 
                 return (
@@ -347,9 +418,7 @@
             });
             const [status, setStatus] = useState("");
             const [editingId, setEditingId] = useState(null);
-            
-            // Estado para el modal de sugerencias
-            const [suggestionModal, setSuggestionModal] = useState({ open: false, title: "", field: "" });
+            const [suggestionModal, setSuggestionModal] = useState({ open: false, title: "", field: "", colorClass: { bg: "", text: "" } });
 
             const studentHistory = useMemo(() => {
                 if (!form.studentId) return [];
@@ -374,13 +443,10 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
-            const openSuggestions = (field, title) => {
-                setSuggestionModal({ open: true, title, field });
-            };
-
+            const openSuggestions = (field, title, colors) => { setSuggestionModal({ open: true, title, field, colorClass: colors }); };
             const addSuggestion = (text) => {
                 const currentText = form[suggestionModal.field] || "";
-                const separator = currentText.length > 0 ? "\n\n" : ""; // Separar por doble salto para que sea lista
+                const separator = currentText.length > 0 ? "\n\n" : ""; 
                 setForm({ ...form, [suggestionModal.field]: currentText + separator + "- " + text });
                 setSuggestionModal({ ...suggestionModal, open: false });
             };
@@ -393,62 +459,24 @@
                             <select className="w-full p-3 border rounded-lg bg-slate-50" value={form.studentId} onChange={e => {setForm({...form, studentId: e.target.value}); if(editingId) setEditingId(null);}} required disabled={!!editingId}><option value="">Seleccionar Estudiante...</option>{students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
                             <div className="space-y-4">
                                 <div><label className="block text-xs font-bold text-slate-500 mb-1">Fecha</label><input type="date" className="w-full p-2 border rounded" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required/></div>
-                                
-                                {/* FORTALEZAS */}
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-xs font-bold text-slate-500">Logros y Fortalezas</label>
-                                        <button type="button" onClick={() => openSuggestions('achievements', 'Logros')} className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full hover:bg-emerald-200 flex items-center gap-1 transition-colors"><LucideIcon name="Lightbulb" size={12}/> Sugerencias</button>
+                                {['achievements', 'barriers', 'strategies', 'familySupport'].map(field => (
+                                    <div key={field}>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block text-xs font-bold text-slate-500 capitalize">{field === 'achievements' ? 'Logros' : field === 'barriers' ? 'Barreras' : field === 'strategies' ? 'Estrategias' : 'Familia'}</label>
+                                            <button type="button" onClick={() => openSuggestions(field, field === 'achievements' ? 'Logros' : field === 'barriers' ? 'Barreras' : field === 'strategies' ? 'Estrategias' : 'Familia', field === 'achievements' ? { bg: 'bg-emerald-100', text: 'text-emerald-800' } : field === 'barriers' ? { bg: 'bg-amber-100', text: 'text-amber-800' } : field === 'strategies' ? { bg: 'bg-blue-100', text: 'text-blue-800' } : { bg: 'bg-purple-100', text: 'text-purple-800' })} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded hover:bg-blue-100 flex items-center gap-1"><LucideIcon name="Lightbulb" size={12}/> Sugerencias</button>
+                                        </div>
+                                        <textarea className="w-full p-3 border rounded-lg h-24 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value={form[field]} onChange={e => setForm({...form, [field]: e.target.value})}></textarea>
                                     </div>
-                                    <textarea className="w-full p-3 border rounded-lg h-24 text-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-shadow" placeholder="Describa los logros..." value={form.achievements} onChange={e => setForm({...form, achievements: e.target.value})} required></textarea>
-                                </div>
-
-                                {/* BARRERAS */}
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-xs font-bold text-slate-500">Barreras y Dificultades</label>
-                                        <button type="button" onClick={() => openSuggestions('barriers', 'Barreras')} className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full hover:bg-amber-200 flex items-center gap-1 transition-colors"><LucideIcon name="Lightbulb" size={12}/> Sugerencias</button>
-                                    </div>
-                                    <textarea className="w-full p-3 border rounded-lg h-24 text-sm focus:ring-2 focus:ring-amber-500 outline-none transition-shadow" placeholder="Describa las dificultades..." value={form.barriers} onChange={e => setForm({...form, barriers: e.target.value})} required></textarea>
-                                </div>
-
-                                {/* ESTRATEGIAS ESCUELA */}
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-xs font-bold text-slate-500">Estrategias Escuela</label>
-                                        <button type="button" onClick={() => openSuggestions('strategies', 'Estrategias Escuela')} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full hover:bg-blue-200 flex items-center gap-1 transition-colors"><LucideIcon name="Lightbulb" size={12}/> Sugerencias</button>
-                                    </div>
-                                    <textarea className="w-full p-3 border rounded-lg h-24 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-shadow" placeholder="Estrategias implementadas..." value={form.strategies} onChange={e => setForm({...form, strategies: e.target.value})}></textarea>
-                                </div>
-
-                                {/* FAMILIA */}
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-xs font-bold text-slate-500">Sugerencias Familia</label>
-                                        <button type="button" onClick={() => openSuggestions('familySupport', 'Apoyo Familia')} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full hover:bg-purple-200 flex items-center gap-1 transition-colors"><LucideIcon name="Lightbulb" size={12}/> Sugerencias</button>
-                                    </div>
-                                    <textarea className="w-full p-3 border rounded-lg h-24 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-shadow" placeholder="Sugerencias para el hogar..." value={form.familySupport} onChange={e => setForm({...form, familySupport: e.target.value})}></textarea>
-                                </div>
+                                ))}
                             </div>
-                            
                             <div className="bg-slate-50 p-4 rounded grid grid-cols-1 gap-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">Convivencia Escolar</label>
-                                        <select className="w-full p-2 border rounded text-sm" value={form.social} onChange={e => setForm({...form, social: e.target.value})}><option>Adecuada</option><option>Requiere Observación</option><option>Dificultades</option></select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">En el área de salud</label>
-                                        <select className="w-full p-2 border rounded text-sm" value={form.health} onChange={e => setForm({...form, health: e.target.value})}><option>Sin observaciones</option><option>En tratamiento</option><option>Alerta</option></select>
-                                    </div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">Convivencia Escolar</label><select className="w-full p-2 border rounded text-sm" value={form.social} onChange={e => setForm({...form, social: e.target.value})}><option>Adecuada</option><option>Requiere Observación</option><option>Dificultades</option></select></div>
+                                    <div><label className="block text-xs font-bold text-slate-500 mb-1">En el área de salud</label><select className="w-full p-2 border rounded text-sm" value={form.health} onChange={e => setForm({...form, health: e.target.value})}><option>Sin observaciones</option><option>En tratamiento</option><option>Alerta</option></select></div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 mb-1">Otras Observaciones (Ej: Necesita lentes)</label>
-                                    <input type="text" className="w-full p-2 border rounded text-sm" placeholder="Escriba aquí..." value={form.otherObservations} onChange={e => setForm({...form, otherObservations: e.target.value})}/>
-                                </div>
+                                <div><label className="block text-xs font-bold text-slate-500 mb-1">Otras Observaciones</label><input type="text" className="w-full p-2 border rounded text-sm" placeholder="Escriba aquí..." value={form.otherObservations} onChange={e => setForm({...form, otherObservations: e.target.value})}/></div>
                                 <label className="flex items-center gap-2 cursor-pointer pt-2"><input type="checkbox" checked={form.alertDecree67} onChange={e => setForm({...form, alertDecree67: e.target.checked})}/><span className="text-xs font-bold text-red-600">Alerta Decreto 67</span></label>
                             </div>
-
                             <div className="flex gap-2">
                                 {editingId && <button type="button" onClick={() => {setEditingId(null); setForm({...form, achievements: "", barriers: "", strategies: "", familySupport: "", otherObservations: ""})}} className="flex-1 bg-slate-200 text-slate-700 py-3 rounded font-bold">Cancelar</button>}
                                 <button type="submit" className={`flex-1 text-white py-3 rounded flex justify-center gap-2 font-bold ${editingId ? 'bg-amber-500' : 'bg-slate-800'}`}><LucideIcon name="Save"/> {editingId ? "Actualizar" : "Guardar"}</button>
@@ -467,15 +495,7 @@
                             ))}</div>
                         }
                     </div>
-
-                    {/* MODAL DE SUGERENCIAS */}
-                    <SuggestionModal 
-                        isOpen={suggestionModal.open} 
-                        onClose={() => setSuggestionModal({...suggestionModal, open: false})}
-                        title={suggestionModal.title}
-                        suggestions={SUGGESTION_BANK[suggestionModal.field] || []}
-                        onSelect={addSuggestion}
-                    />
+                    <SuggestionModal isOpen={suggestionModal.open} onClose={() => setSuggestionModal({...suggestionModal, open: false})} title={suggestionModal.title} suggestions={SUGGESTION_BANK[suggestionModal.field] || []} onSelect={addSuggestion} colorClass={suggestionModal.colorClass}/>
                 </div>
             );
         };
@@ -534,56 +554,80 @@
                         if (fStudent !== "all" && logs.length === 0) return <div className="no-print p-4 text-center text-slate-400 border border-dashed rounded bg-slate-50 mb-4">No hay informes seleccionados para imprimir de {s.name}.</div>;
 
                         return (
-                            <div key={s.id} className="page-break mb-12 relative">
-                                <div className="border-b-2 border-slate-800 pb-4 mb-6 text-center">
-                                    {globalLogo && <div className="flex justify-center mb-6"><img src={globalLogo} alt="Logo Escuela" className="h-24 object-contain block mx-auto" /></div>}
-                                    <div><h2 className="font-bold text-2xl uppercase text-slate-900 tracking-wide">INFORME DE PROCESO EDUCATIVO</h2><p className="text-sm font-medium text-slate-600 mt-1">Programa de Integración Escolar 2025</p></div>
-                                </div>
-                                <div className="bg-slate-50 p-4 border mb-6 grid grid-cols-12 gap-4 text-sm">
-                                    <div className="col-span-8"><strong>Estudiante:</strong> {s.name}
-                                        {s.socialName && <div className="text-purple-700 mt-1 flex items-center gap-1"><LucideIcon name="User" size={12}/> <strong>Nombre Social:</strong> {s.socialName}</div>}
-                                    </div>
-                                    <div className="col-span-4"><strong>RUT:</strong> {s.rut}</div>
-                                    <div className="col-span-4"><strong>Curso:</strong> {s.course}</div>
-                                    <div className="col-span-8"><strong>Diagnóstico:</strong> {getFullDiagnosis(s.diagnosis)}</div>
-                                </div>
-                                <div className="space-y-6">
-                                    {logs.length === 0 ? <div className="text-center italic text-slate-400 py-4">Sin registros.</div> : logs.map((l, i) => (
-                                        <div key={l.id} className="border rounded overflow-hidden break-inside-avoid">
-                                            <div className="bg-slate-100 p-2 flex justify-between font-bold text-sm"><span>Registro #{i+1}</span><span>{l.date}</span></div>
-                                            <div className="p-4 grid grid-cols-2 gap-6 text-sm">
-                                                <div className="space-y-2"><div><strong className="text-emerald-700 block text-xs">Fortalezas</strong><p>{l.achievements}</p></div><div><strong className="text-amber-700 block text-xs">Barreras</strong><p>{l.barriers}</p></div></div>
-                                                <div className="space-y-2"><div><strong className="text-blue-700 block text-xs">Estrategias</strong><p>{l.strategies}</p></div><div><strong className="text-purple-700 block text-xs">Familia</strong><p>{l.familySupport}</p></div></div>
+                            <div key={s.id} className="print-container">
+                                {logs.map((l, i) => (
+                                    <div key={l.id} className="log-entry">
+                                        {/* PÁGINA 1: Fortalezas y Barreras */}
+                                        <div className="min-h-[95vh] relative">
+                                            <div className="border-b-2 border-slate-800 pb-4 mb-6 text-center relative">
+                                                {globalLogo && <div className="flex justify-center mb-6"><img src={globalLogo} alt="Logo Escuela" className="h-24 object-contain block mx-auto" /></div>}
+                                                <div><h2 className="font-bold text-2xl uppercase text-slate-900 tracking-wide">INFORME DE PROCESO EDUCATIVO</h2><p className="text-sm font-medium text-slate-600 mt-1">Programa de Integración Escolar 2025</p></div>
                                             </div>
                                             
-                                            {/* SECCIÓN ACTUALIZADA EN REPORTE */}
-                                            <div className="bg-slate-50 p-3 border-t border-slate-200 text-xs text-slate-600">
-                                                <div className="grid grid-cols-2 gap-4 mb-2">
-                                                    <span className="flex items-center gap-1"><LucideIcon name="Smile" size={14}/> <strong>Convivencia Escolar:</strong> {l.social}</span>
-                                                    <span className="flex items-center gap-1"><LucideIcon name="HeartPulse" size={14}/> <strong>En el área de salud:</strong> {l.health}</span>
+                                            <div className="bg-slate-50 p-4 border mb-6 grid grid-cols-12 gap-4 text-sm print-clean info-section">
+                                                <div className="col-span-8"><strong>Estudiante:</strong> {s.name}{s.socialName && <div className="text-purple-700 mt-1 flex items-center gap-1"><LucideIcon name="User" size={12}/> <strong>Nombre Social:</strong> {s.socialName}</div>}</div>
+                                                <div className="col-span-4"><strong>RUT:</strong> {s.rut}</div>
+                                                <div className="col-span-4"><strong>Curso:</strong> {s.course}</div>
+                                                <div className="col-span-8"><strong>Diagnóstico:</strong> {getFullDiagnosis(s.diagnosis)}</div>
+                                                <div className="col-span-12 border-t pt-2 mt-2 flex justify-between"><strong>Registro de Avance N° {i+1}</strong><span>Fecha: {l.date}</span></div>
+                                            </div>
+
+                                            <div className="section-box"><strong className="text-emerald-700 block text-sm uppercase mb-2 border-b border-emerald-200 pb-1">I. Fortalezas y Logros</strong><p className="text-justify text-slate-800 text-sm leading-relaxed">{l.achievements}</p></div>
+                                            <div className="section-box"><strong className="text-amber-700 block text-sm uppercase mb-2 border-b border-amber-200 pb-1">II. Barreras y Dificultades</strong><p className="text-justify text-slate-800 text-sm leading-relaxed">{l.barriers}</p></div>
+                                        </div>
+                                        
+                                        {/* SALTO DE PÁGINA FORZADO */}
+                                        <div className="force-page-break"></div>
+
+                                        {/* PÁGINA 2: Estrategias, Familia, Otros y Firmas */}
+                                        <div className="min-h-[95vh] relative pt-8">
+                                            <div className="text-xs text-gray-400 mb-6 border-b pb-2">Continuación Informe: {s.name} - {l.date}</div>
+                                            
+                                            <div className="section-box"><strong className="text-blue-700 block text-sm uppercase mb-2 border-b border-blue-200 pb-1">III. Estrategias (Escuela)</strong><p className="text-justify text-slate-800 text-sm leading-relaxed">{l.strategies}</p></div>
+                                            <div className="section-box"><strong className="text-purple-700 block text-sm uppercase mb-2 border-b border-purple-200 pb-1">IV. Sugerencias a la Familia</strong><p className="text-justify text-slate-800 text-sm leading-relaxed">{l.familySupport}</p></div>
+                                            
+                                            <div className="bg-slate-50 p-4 border-t border-slate-200 text-xs text-slate-600 print-clean mt-8 section-box">
+                                                <strong className="text-slate-700 block text-sm uppercase mb-2">V. Observaciones Generales</strong>
+                                                <div className="grid grid-cols-2 gap-4 mb-3">
+                                                    <span className="flex items-center gap-1"><LucideIcon name="Smile" size={14}/> <strong>Convivencia:</strong> {l.social}</span>
+                                                    <span className="flex items-center gap-1"><LucideIcon name="HeartPulse" size={14}/> <strong>Salud:</strong> {l.health}</span>
                                                 </div>
-                                                {l.otherObservations && (
-                                                    <div className="border-t border-slate-200 pt-2 mb-2 italic">
-                                                        <strong>Otras Observaciones:</strong> {l.otherObservations}
+                                                {l.otherObservations && <div className="border-t border-slate-200 pt-2 mb-2 italic"><strong>Otras Observaciones:</strong> {l.otherObservations}</div>}
+                                                {l.alertDecree67 && <span className="text-red-600 font-bold block mt-1"><LucideIcon name="AlertCircle" size={14} className="inline mr-1"/> ALERTA DECRETO 67 (Riesgo Académico/Asistencia)</span>}
+                                            </div>
+
+                                            {/* FIRMAS EN CUADRÍCULA */}
+                                            <div className="signature-section mt-auto">
+                                                <div className="signature-grid">
+                                                    <div className="signature-box">
+                                                        <div className="sig-line"></div>
+                                                        <p className="font-bold text-slate-700 text-xs">Educadora Diferencial</p>
                                                     </div>
-                                                )}
-                                                {l.alertDecree67 && <span className="text-red-600 font-bold block mt-1"><LucideIcon name="AlertCircle" size={14} className="inline mr-1"/> ALERTA DECRETO 67</span>}
+                                                    <div className="signature-box">
+                                                        <div className="sig-line"></div>
+                                                        <p className="font-bold text-slate-700 text-xs">Psicóloga PIE</p>
+                                                    </div>
+
+                                                    <div className="signature-box">
+                                                        <div className="sig-line"></div>
+                                                        <p className="font-bold text-slate-700 text-xs">Coordinación PIE</p>
+                                                    </div>
+                                                    <div className="signature-box">
+                                                        <div className="sig-line"></div>
+                                                        <p className="font-bold text-slate-900 text-xs">Alejandra Morales G.</p>
+                                                        <p className="text-slate-500 text-[10px]">Unidad Técnico Pedagógica</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-center mt-4 text-[10px] text-slate-400 pt-4 border-t border-slate-200">
+                                                    Sistema de Gestión PIE - Escuela Agrícola SC <br/>
+                                                    <span className="italic">Desarrollado por ProfeAle</span>
+                                                </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                                
-                                <div className="mt-20 pt-4 border-t-2 border-slate-100 break-inside-avoid">
-                                    <div className="flex justify-around text-center text-xs px-8 mb-16">
-                                        <div className="w-48"><div className="border-t border-slate-800 pt-2 mb-1"></div><p className="font-bold text-slate-700">Educadora Diferencial</p></div>
-                                        <div className="w-48"><div className="border-t border-slate-800 pt-2 mb-1"></div><p className="font-bold text-slate-700">Psicóloga PIE</p></div>
+                                        <div className="print-footer"></div>
                                     </div>
-                                    <div className="flex justify-around text-center text-xs px-8">
-                                        <div className="w-48"><div className="border-t border-slate-800 pt-2 mb-1"></div><p className="font-bold text-slate-700">Coordinación PIE</p></div>
-                                        <div className="w-48"><div className="border-t border-slate-800 pt-2 mb-1"></div><p className="font-bold text-slate-900">Alejandra Morales G.</p><p className="text-slate-500">Unidad Técnico Pedagógica</p></div>
-                                    </div>
-                                    <div className="text-center mt-8 text-[10px] text-slate-400">Documento generado digitalmente a través del Sistema de Gestión PIE - Escuela Agrícola SC</div>
-                                </div>
+                                ))}
                             </div>
                         );
                     })}
@@ -629,7 +673,7 @@
             const updateLogo = async (base64) => { if(user) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings'), { logo: base64 }, { merge: true }); };
 
             return (
-                <div className="flex h-screen overflow-hidden bg-gray-100">
+                <div className="flex h-screen overflow-hidden bg-gray-100 print:block print:h-auto print:overflow-visible">
                     <aside className="w-64 bg-slate-900 text-slate-300 flex-col hidden md:flex no-print shadow-xl z-20">
                         <div className="p-6 border-b border-slate-800"><h1 className="font-bold text-lg text-emerald-400 flex items-center gap-2"><LucideIcon name="School"/> Gestor PIE</h1></div>
                         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -640,8 +684,8 @@
                         </nav>
                         <div className="p-4 border-t border-slate-800 text-xs text-slate-500"><p className="font-bold text-slate-400">Escuela Agrícola SC</p><p>Desarrollado por ProfeAle</p></div>
                     </aside>
-                    <main className="flex-1 overflow-auto bg-gray-100 w-full relative">
-                        <div className="p-6 max-w-7xl mx-auto">
+                    <main className="flex-1 overflow-auto bg-gray-100 w-full relative print:overflow-visible print:h-auto print:block">
+                        <div className="p-6 max-w-7xl mx-auto print:p-0 print:w-full print:max-w-none">
                             {activeTab === 'dashboard' && <DashboardView students={students} progress={progress} isConnected={!!user} authError={authError} />}
                             {activeTab === 'students' && <StudentsView students={students} onAdd={addS} onEdit={editS} onDelete={delS} onUpdateWithCSV={updateWithCSV} />}
                             {activeTab === 'progress' && <ProgressView students={students} progress={progress} onAdd={addP} onEdit={editP} />}
